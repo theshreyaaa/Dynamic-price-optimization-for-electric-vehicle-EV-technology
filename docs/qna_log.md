@@ -130,7 +130,6 @@ Raised by:Ankush
 ---
 
 ## Phase 3: Time-Series Resampling & HMM Modeling
-# EV Charging Optimization — Project Q&A
 
 ### Q1: How can we convert charging session data into hourly data?
 **Raised by:** Anshika Kumari
