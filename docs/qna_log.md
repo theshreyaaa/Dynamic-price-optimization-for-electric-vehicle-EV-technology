@@ -14,143 +14,212 @@ This document records architectural decisions, engineering edge cases, and clari
 ## Phase 2: Data Cleaning & Preprocessing
 Raised by:Ankush
 
-Q1: What is the Caltech ACN dataset, and what does it represent?
+### Q1: What is the Caltech ACN dataset, and what physical facility does it represent?
 
-Answer: It contains real-world EV charging logs from 
-Caltech's parking garage in Pasadena, California, across the full year of 2019. It captures workplace commuter charging across 54 physical Level 2 charging stalls, where vehicles stay parked for hours during work shifts.   
+* **Answer:** It records real-world EV charging sessions from a parking garage at the California Institute of Technology (Pasadena, California) across the entire year of 2019. It represents a **workplace charging facility** containing exactly **54 Level 2 AC charging stalls**, where employees and students plug in their vehicles for extended stays during work and class shifts.
 
-Q2: Why did we have two separate JSON files (acndata_sessions.json and acndata_sessions (1).json)?
+---
 
-Answer: The full 2019 data exceeded the Caltech API export size limit. It was split into two exports: File 1 (7,440 sessions) and File 2 (3,177 sessions), totaling 10,617 raw session logs that were normalized and concatenated.
+### Q2: Why was raw data in two JSON files, and how did you verify no duplication occurred?
 
-Q3: How did we verify that merging the two files didn't create duplicate sessions?
+* **Answer:** The full 2019 dataset exceeded the Caltech API single-export size limit and was downloaded in two halves: File 1 (7,440 sessions) and File 2 (3,177 sessions), totaling 10,617 raw rows. After concatenating both files, we ran `df['sessionID'].duplicated().sum()`, which returned **0**, verifying that every session has a unique primary key.
 
-Answer: We executed df['sessionID'].duplicated().sum(), which returned 0. Every record has a globally unique primary key.
+---
 
-Q4: Why is chronological sorting (connectionTime) strictly necessary?
+### Q3: Why is strict chronological sorting (`connectionTime`) necessary?
 
-Answer: Time-series feature engineering and 1-hour interval resampling require strictly forward-flowing time. Chronological sorting prevents temporal leakage (using future information to predict the past) and guarantees causal consistency.Section 2: Timezones & Temporal Integrity
+* **Answer:** Machine learning models and hourly time-series resampling require time to move forward monotonically. Chronological sorting prevents **temporal data leakage** (using future charging events to predict past states) and guarantees causal consistency when aggregating data into hourly bins.
 
-Q5: Why do we convert timestamps to America/Los_Angeles?
+---
 
-Answer: Caltech is physically located in Pasadena, California. Converting to local Pacific Time is mandatory to align charging events with actual daytime work hours, identify morning commuter arrival peaks, and synchronize sessions with local Southern California Edison (SCE) Time-of-Use tariffs. 
+### Q4: Why convert timestamps to California local time, and why is Indian Standard Time (IST) completely invalid?
 
-Q6: Why can't we use Indian Standard Time (IST)?
+* **Answer:**
+* **California Local Time (`America/Los_Angeles`):** Essential because commuter charging routines and Southern California Edison (SCE) Time-of-Use electricity tariffs strictly operate on local California wall-clock time.
 
-Answer: IST is 12.5 to 13.5 hours ahead of California. Using IST inverts day and night—turning an 8:30 AM California morning office arrival into a 10:00 PM late-night event, completely corrupting diurnal behavior patterns.
+* **Why Not IST:** India is 12.5 to 13.5 hours ahead of California. Converting to IST inverts day and night—turning an 8:30 AM California morning office arrival into a 10:00 PM late-night event, completely corrupting diurnal behavior patterns.
 
-Q7: What is the Dual-Timezone architecture, and why do we use both UTC and Pacific Time?
+---
 
-Answer:UTC (Mathematical Spine): Unaffected by clock shifts; guarantees an unbroken, gap-free continuous timeline of exactly 8,760 hours for 2019.Pacific Time (Behavioral Projection): Used to extract local_hour (0–23), day_of_week, and TOU tariffs to match local human schedules.
+### Q5: What is the Dual-Timezone architecture, and why not use Pacific Time for everything?
 
-Q8: What is the difference between PST, PDT, and DST?
+* **Answer:**
+* **The Problem:** California observes Daylight Saving Time (DST). If you build an annual timeline directly in Pacific Time, March skips an hour (8,759 hours) and November duplicates an hour (8,761 hours), breaking continuous time-series models.
+* **The Solution:** We keep the continuous mathematical index in **UTC** (unaffected by DST, guaranteeing exactly 8,760 uninterrupted hours for 2019), and project to **Pacific Time** only when extracting behavioral features (`local_hour`, `is_weekend`) and SCE baseline tariffs.
 
-Answer:DST (Daylight Saving Time): The practice of advancing clocks by 1 hour during warmer months.PST (Pacific Standard Time): California's winter time zone ($\text{UTC}-8$).PDT (Pacific Daylight Time): California's summer time zone while DST is active ($\text{UTC}-7$).Pandas handles this automatically via America/Los_Angeles.Section 3: Duration Disaggregation & Electrical Formulas
+---
 
-Q9: What is Total Session Duration, and how is it calculated?
+### Q6: Why must total session duration be split into Active Charging and Idle Duration?
 
-Answer: The total duration a vehicle occupies a charging stall:
+* **Answer:**
+* **Session Duration:** Total time a car physically occupies a stall (`disconnectTime - connectionTime`). Measures parking congestion.
 
-   $$\text{Session Duration (mins)} = \frac{\text{disconnectTime} - \text{connectionTime}}{60}$$
-   
-It measures physical parking congestion and stall availability.   
 
-Q10: What is Idle Duration, and why is it called "stall blocking"?
+* **Active Duration:** Time electricity is flowing into the battery (`doneChargingTime - connectionTime`). Measures grid power demand.
 
-Answer: The time an EV remains plugged in after its battery is full (zero power draw):
 
-   $$\text{Idle Duration (mins)} = \frac{\text{disconnectTime} - \text{doneChargingTime}}{60}$$
-   
-It identifies "stall blocking," where fully charged cars prevent other drivers from using the charger.  
+* **Idle Duration:** Time a fully charged car sits plugged in (`disconnectTime - doneChargingTime`). Measures stall blocking.
 
-Q11: What is Active Charging Duration, and why is it calculated separately?
 
-Answer: The exact duration power is actively flowing into the vehicle:
+* **Why Separate:** In workplace lots, cars finish charging in 2 to 3 hours but remain parked for 8 hours. Failing to separate them causes **phantom load errors**, where the model falsely assumes the vehicle is pulling electrical power for the entire 8-hour workday.
 
-   $$\text{Active Duration (mins)} = \frac{\text{doneChargingTime} - \text{connectionTime}}{60}$$
-   
-Separating active time from idle time prevents phantom load errors—ensuring the grid model does not assume a vehicle is drawing power during its entire 8-hour parking stay.   
+---
 
-Q12: How is the Implied Charging Rate (charging_rate_kw) calculated?
+### Q7: Why clip active duration to $\ge 3.0$ minutes and cap charging power at $\le 25\text{ kW}$?
 
-Answer: The average power drawn during active charging:
+* **Answer:**
+* **Clipping Duration:** Implied power is calculated as $\text{Energy} / \text{ActiveHours}$. An instant 10-second plug-in would cause division by near-zero, producing an impossible mathematical power spike ($> 300\text{ kW}$) on a standard $7\text{ kW}$ Level 2 charger.
+* **Capping at $25\text{ kW}$:** Caltech exclusively uses J1772 Level 2 AC chargers, which have a physical hardware ceiling of $\sim 19.2\text{--}22\text{ kW}$. Any reading above $25\text{ kW}$ is sensor current drift or telemetry corruption.
 
-   $$\text{Charging Rate (kW)} = \frac{\text{kWhDelivered}}{\text{active\_charging\_minutes} / 60}$$
+---
 
-Q13: Why did we clip active_charging_minutes to a minimum of 3.0 minutes?
+### Q8: How did you handle missing or inverted `doneChargingTime` records?
 
-Answer: To eliminate division-by-zero and extreme mathematical spikes. A 10-second connection would otherwise yield an impossible power rate of over $300\text{ kW}$ on a standard $7\text{ kW}$ Level 2 charger.Section 4: Data Anomalies, Cleaning Decisions & Missing Values
+* **Answer:** In records where `doneChargingTime` was missing ($NaN$) or corrupted (logged before `connectionTime` or after `disconnectTime`), it was imputed to equal `disconnectTime`. This conservatively assumes the vehicle drew trickle power until departure rather than discarding a valid physical session.
 
-Q14: How did we handle missing or corrupted doneChargingTime timestamps?
+---
 
-Answer: When doneChargingTime was null, earlier than connectionTime, or later than disconnectTime, it was imputed to equal disconnectTime. This conservatively assumes continuous trickle power draw instead of discarding valid charging sessions.
+### Q9: Why are there 1,532 missing values in `userID`, and why is dropping them (`dropna()`) a mistake?
 
-Q15: Why are there 1,532 missing values in userID and userInputs, and why didn't we drop them?
+* **Answer:** Caltech allows anonymous guest charging for drivers who pay with a credit card without registering on the mobile app. While user profile fields are empty, the physical energy meters and connection timestamps are 100% complete. Because our project optimizes site-level transformer load rather than individual user recommendations, dropping these rows would ignore 14.5% of real grid electricity demand.
 
-Answer: These represent anonymous guest drivers who plugged in without registering on the mobile app. Their energy meters and timestamps are 100% complete. Because we optimize station-level load rather than individual user profiles, dropping them would omit 14.5% of real grid electrical demand.
+---
 
-Q16: Why did we filter out sessions delivering less than 0.5 kWh?
+### Q10: Why filter out sessions delivering less than 0.5 kWh?
 
-Answer: Sessions under $0.5\text{ kWh}$ are aborted communication handshakes, declined payment cards, or instant stall disconnects. They represent telemetry noise rather than true charging events.
+* **Answer:** Sessions under $0.5\text{ kWh}$ represent aborted communication handshakes, declined payment cards, or drivers who plugged in and immediately disconnected upon seeing a faulty stall. They represent telemetry noise rather than genuine battery charging cycles.
 
-Q17: Why did we drop sessions longer than 24 hours (1,440 minutes)?
+---
 
-Answer: The dataset contained abandoned vehicles parked for up to 9 days (214 hours) over university holidays. These are long-term vehicle storage events that corrupt daily commuter occupancy profiles and Markov state transitions.
+### Q11: Why drop sessions longer than 24 hours instead of capping them?
 
-Q18: Why did we cap implied charging rates at $\le 25\text{ kW}$?
+* **Answer:** The raw data contained vehicles parked for up to 9 days (214 hours) over university holidays. These are long-term vehicle storage events, not active workplace charging sessions. Leaving a 9-day car in the data marks a stall as 100% continuously occupied for over a week, severely distorting daily commuter occupancy profiles and Markov state transitions.
 
-Answer: Caltech exclusively uses J1772 Level 2 AC chargers, which have a physical hardware ceiling of $\sim 19.2\text{--}22\text{ kW}$. Any reading above $25\text{ kW}$ is sensor current drift or data corruption.
+---
 
-Q19: What is the exact accounting of rows dropped during Phase 2?
+### Q12: Why does Z-Score fail on raw EV data, and why use IQR for outliers but Z-Score for standardization?
 
-Answer: We ingested 10,617 raw rows, removed 78 invalid rows (77 multi-day outliers $> 24$ hours, 1 sensor power spike $> 25\text{ kW}$, and handshake drops), leaving exactly 10,539 clean rows (99.26% retention).Section 5: Statistical Methods: Outliers, IQR & Z-Scores
+* **Answer:**
+* **Why Z-Score Fails on Raw Data:** Z-scores assume a symmetric, normal bell curve. Raw EV charging data is heavily right-skewed with extreme long tails (e.g., 200-hour sessions). Extreme outliers inflate the mean ($\mu$) and standard deviation ($\sigma$), shrinking calculated Z-scores and allowing corrupt records to slip past detection.
 
-Q20: What is the Interquartile Range (IQR) method?
+* **The Two-Stage Solution:** We used non-parametric **IQR** (median and quartiles) for initial outlier removal because it is resistant to extreme tail distortion. Once extreme noise was removed, **Z-score transformation** was applied to standardize clean features onto a zero-mean, unit-variance scale for machine learning.
 
-Answer: A non-parametric method based on percentiles measuring the middle 50% spread: $\text{IQR} = Q_3 - Q_1$. Data points outside $[Q_1 - 1.5\text{IQR}, Q_3 + 1.5\text{IQR}]$ are flagged as outliers.  
+---
 
-Q21: What is a Z-Score?
+### Q13: What is the exact accounting of rows dropped during Phase 2?
 
-Answer: A parametric metric indicating how many standard deviations a value lies from the mean:
-   $$z = \frac{x - \mu}{\sigma}$$
-Values with $\vert{}z\vert{} > 3.0$ denote extreme statistical deviations.   
+* **Answer:** We ingested **10,617 raw rows** and dropped **78 invalid rows** (77 multi-day storage outliers $> 24$ hours, 1 sensor power spike $> 25\text{ kW}$, and handshake drops $< 0.5\text{ kWh}$), leaving exactly **10,539 clean rows** (a 99.26% data retention rate).
 
-Q22: Why does Z-Score fail when applied to raw, uncleaned EV charging data?
+---
 
-Answer: Z-scores assume a symmetric normal distribution. Raw EV data is heavily right-skewed with long tails (e.g., 200-hour sessions). These extremes inflate both the mean and standard deviation, shrinking calculated Z-scores and masking genuine anomalies.   
+### Q14: What sanity checks prove that Phase 2 was completed correctly before Phase 3?
 
-Q23: Why did we use IQR for outlier detection but Z-Score for feature standardization?
+* **Answer:**
+1. **Zero Duplicates:** `df['sessionID'].duplicated().sum() == 0`.
+2. **Operational Completeness:** Zero null values across timestamps, durations, and energy columns.
+3. **Temporal Validity:** 100% of rows satisfy $\text{connectionTime} \le \text{doneChargingTime} \le \text{disconnectTime}$.
+4. **Duration Additivity:** $\text{Total Session Duration} = \text{Active Duration} + \text{Idle Duration}$ holds across all 10,539 rows.
+5. **Physical Realism:** All sessions are under 24 hours, energy delivery is $\ge 0.5\text{ kWh}$, and maximum charging rate ($20.13\text{ kW}$) respects Level 2 charger limits.
 
-Answer: IQR uses medians and quartiles, making it robust against skewed data for initial outlier removal. Once extreme noise was removed, Z-score transformation was applied to standardize features onto a zero-mean, unit-variance scale for downstream machine learning.   Section 6: Final Verification & Pipeline Handoff
+---
 
-Q24: What are the final dimensions and summary statistics of the cleaned dataset?
+### Q15: How does Phase 2 directly connect to Phase 3 and Phase 4?
 
-Answer: 10,539 rows $\times$ 27 columns.Session Duration: Mean $345.6\text{ min}$ (5.76 h), Median $345.7\text{ min}$, Max $1,435.2\text{ min}$ (23.9 h).Active Charging: Mean $173.1\text{ min}$ (2.88 h), Median $120.3\text{ min}$.Idle Duration: Mean $172.5\text{ min}$ (2.87 h), Median $93.2\text{ min}$.Energy Delivered: Mean $8.86\text{ kWh}$, Max $75.53\text{ kWh}$.Charging Rate: Mean $3.40\text{ kW}$, Max $20.13\text{ kW}$.
+* **Answer:** Phase 2 cleans session anomalies and separates active power from idle parking. This allows Phase 3 to resample sessions into an 8,760-hour continuous timeline to calculate **Stall Occupancy Rate ($OR_t$)** and **Transformer Load Ratio ($TLR_t$)**, which train the Gaussian HMM to classify grid stress regimes for Phase 4 dynamic pricing.
 
-Q25: What sanity checks prove that Phase 2 was completed correctly?
-
-Answer:Zero duplicate session IDs.Zero null values in operational columns.Strict chronological monotonicity (connectionTime.is_monotonic_increasing == True).100% sequence validity: $\text{connectionTime} \le \text{doneChargingTime} \le \text{disconnectTime}$.Exact duration additivity: $\text{Session Duration} = \text{Active Duration} + \text{Idle Duration}$.
-
-Q26: How does Phase 2 directly connect to Phase 3 and Phase 4?
-
-Answer: Phase 2 cleans and separates active power from idle parking. This allows Phase 3 to resample sessions into an 8,760-hour continuous timeline to compute Occupancy Rate ($OR_t$) and Transformer Load Ratio ($TLR_t$), which train the Gaussian HMM to classify grid stress regimes for Phase 4 dynamic pricing.
 ---
 
 ## Phase 3: Time-Series Resampling & HMM Modeling
 # EV Charging Optimization — Project Q&A
 
-### Q1. How can we convert charging session data into hourly data?
+### Q1: How can we convert charging session data into hourly data?
 **Raised by:** Anshika Kumari
 **Solution:** I created an hourly timeline to convert the charging session data into a format suitable for hourly analysis. This helps us understand charging activity hour by hour. For a complete non-leap year, the timeline contains 8,760 hours.
 
-### Q2. How can we convert UTC timestamps into local time for charging demand analysis?
+### Q2: How can we convert UTC timestamps into local time for charging demand analysis?
 **Raised by:** Anshika Kumari
 **Solution:** I converted the UTC timestamps into the local timezone (`America/Los_Angeles`). This helps identify the correct local hour, day of the week, and whether the day is a weekday or weekend, which are important for analysing charging demand.
 
-### Q3. How can we calculate the transformer load ratio for each hour?
+### Q3: How can we calculate the transformer load ratio for each hour?
 **Raised by:** Anshika Kumari
 **Solution:** I estimated the charging load for each hour by calculating how long vehicles were actively charging during that hour and using their charging rates to estimate energy consumption. I then divided the estimated hourly load by the assumed transformer capacity of 150 kW to calculate the transformer load ratio.
 
-### Q4. How can we assign time-of-use (TOU) prices to each hour?
+### Q4: How can we assign time-of-use (TOU) prices to each hour?
 **Raised by:** Anshika Kumari
 **Solution:** I assigned electricity prices to each hourly record based on the local time and whether the day was a weekday or weekend. This helps represent how electricity prices may vary throughout the day. The price values used in the project are predefined assumptions and should be verified against the actual electricity tariff before being treated as official prices.
+
+### Q5: What is the "Label Switching Problem", why is it dangerous for Phase 4, and how did you mathematically solve it?
+**Raised by:** Palak Kumari
+**Solution:** The Problem & Danger: Gaussian HMM is an unsupervised algorithm that assigns random numeric state IDs (0, 1, 2). Without sorting, State 0 might mean "Peak Stress" on one machine and "Off-Peak" on another, causing Phase 4 to mistakenly issue cheap discounts during severe afternoon transformer overloads.   
+The Solution: I enforced a deterministic, rank-based sort indexed strictly on average transformer load ratio:   Pythonorder = np.argsort(model.means_[:, 1])  # Sort indices by load[cite: 5]
+rank = np.empty_like(order)
+rank[order] = np.arange(3)  # Invert mapping[cite: 5]
+named_states = rank[raw_states]  # 0: Surplus, 1: Nominal, 2: Peak Stress[cite: 5]
+
+---
+
+### Q6: Why build an automated QA audit script (`assert`) instead of using Excel, and what 6 checks does it enforce?
+**Raised by:** Palak Kumari
+**Solution:** Manual inspection of 8,760 rows cannot catch subtle silent bugs like missing hours, negative loads, or floating-point drift. `src/phase3_qa_audit.py` acts as an automated programmatic barrier that halts execution unless all 6 conditions pass:
+  1. **Row Count & Continuity:** Exactly 8,760 continuous hourly intervals with zero missing or duplicate timestamps.
+  2. **Data Completeness:** Exactly zero $NaN$ values across all 12 columns.
+  3. **Physical Bounds:** Occupancy Rate strictly in $[0.0, 1.0]$ and Transformer Load $\ge 0.0$.
+  4. **Monotonic State Order:** Strict progression of mean loads ($\mu_0 < \mu_1 < \mu_2$), proving label switching is resolved[cite: 5].
+  5. **Matrix Stochasticity:** Every row of the empirical transition matrix sums to $1.0 \pm 10^{-5}$.
+  6. **Inertia & Causal Flow:** Diagonal persistence values exceed $0.65$[cite: 5], and forbidden transitions ($P_{20}$) are near $0.0$.
+
+---
+
+### Q7: Why must transition matrix rows sum to 1.0, what floating-point problem occurred, and how did you solve it?
+**Raised by:** Palak Kumari
+**Solution:**
+  * **Mathematical Rule:** A station in state $i$ at hour $t$ must transition to *some* state $j \in \{0, 1, 2\}$ at hour $t+1$; total probability must equal certainty ($\sum_j P_{ij} = 1.0$).
+  * **The Problem:** Standard computer floating-point math produced row sums like $0.9999$, causing strict equality checks (`sum == 1.0`) to fail.
+  * **The Solution:** Used NumPy's tolerance assertion: `np.testing.assert_allclose(row_sums, 1.0, atol=1e-5)` to verify stochasticity within standard IEEE floating-point precision ($0.00001$).
+
+---
+
+### Q8: What is Regime Persistence, what problem occurs if it is weak, and how did you verify it?
+**Raised by:** Palak Kumari
+**Solution:**
+  * **The Concept & Risk:** Persistence is the probability of staying in the same state during the next hour ($P_{ii}$)[cite: 5]. Weak persistence causes erratic price flickering (e.g., jumping between Peak and Surplus every hour), frustrating drivers and destabilizing grid controls.
+  * **The Solution:** Audited the diagonal elements of the transition matrix against a $> 0.65$ threshold[cite: 5]. The model achieved empirical diagonal values of **0.857**, **0.821**, and **0.907**, confirming high real-world grid inertia[cite: 5].
+
+---
+
+### Q9: What is a "Forbidden Transition", what physical error could occur, and how did you test it?
+**Raised by:** Palak Kumari
+**Solution:**
+  * **The Physical Risk:** An unsupervised model could theoretically allow a direct transition from maximum grid overload (State 2) to an empty garage (State 0) in a single hour, which is physically impossible in workplace charging.
+  * **The Solution:** Added an explicit assertion: `assert P_emp[2, 0] <= 0.02`. The audit proved $P_{20} = 0.000$, confirming the facility always steps down gradually through Nominal State 1 before returning to Surplus State 0[cite: 5].
+
+---
+
+### Q10: In Figure 1, why do Transformer Load and Stall Occupancy peak at different hours?
+**Raised by:** Palak Kumari
+**Solution:** Transformer load peaks at **10:00 AM** (morning arrivals plugging in depleted batteries and drawing high active power), while occupancy remains elevated until **3:00 PM**. This is not an error—it is the visual proof of **idle stall blocking**, confirming that fully charged cars remain parked while owners finish work shifts, which justifies separating active power from parking duration.
+
+---
+
+### Q11: What problem occurs when plotting all 8,760 hours, and how did Figure 3 solve it?
+**Raised by:** Palak Kumari
+**Solution:**
+  * **The Problem:** Plotting 8,760 hours on one chart compresses the curve into an unreadable solid black smudge.
+  * **The Solution:** Isolated a representative 168-hour continuous window (June 3–9, 2019). This provides the visual clarity needed to trace hourly power draws against the 150 kW capacity line while displaying background regime shading (`axvspan`) for Surplus (Green), Nominal (Yellow), and Peak Stress (Red)[cite: 5].
+
+---
+
+### Q12: What practical file-handling bug crashed the visualization script, and how did you solve it?
+**Raised by:** Palak Kumari
+**Solution:**
+  * **The Bug:** Running `src/phase3_visualizations.py` on a freshly cloned repository triggered a `FileNotFoundError` because the `figures/` directory did not exist yet.
+  * **The Solution:** Added defensive directory creation at the script entry point: `os.makedirs("figures", exist_ok=True)`. Python now creates the folder automatically if missing.
+
+---
+
+### Q13: How do your Phase 3 deliverables directly feed into Phase 4 Dynamic Pricing?
+**Raised by:** Palak Kumari
+**Solution:**
+  1. **Bug-Free Dataset:** The QA audit certifies that `hourly_features_with_states.csv` is mathematically and physically validated[cite: 5].
+  2. **Reliable Price Triggers:** Sorted states provide deterministic pricing actions (State 0 = surplus discount, State 1 = baseline SCE rate, State 2 = peak surcharge)[cite: 5].
+  3. **Risk Adjustments:** The verified transition matrix provides transition probabilities ($P_{ij}$) used by Phase 4 optimization algorithms to anticipate upcoming grid stress.
