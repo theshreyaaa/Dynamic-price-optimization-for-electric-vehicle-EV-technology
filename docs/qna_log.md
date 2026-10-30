@@ -7,7 +7,7 @@ This document records architectural decisions, engineering edge cases, and clari
 ## Phase 1: Repository Initialisation and Appropriate Data Selection
 ### Q1: What factors should be considered while selecting a dataset for this project?
 * **Raised by:** Shreya
-*  **Answer:**The following factors should be considered:
+*  Answer:The following factors should be considered:
 
 1. Relevance: The dataset should contain information directly related to EV charging, electricity prices or charging demand.
 
@@ -27,21 +27,21 @@ This document records architectural decisions, engineering edge cases, and clari
 
 ### Q2:Which datasets have been identified for this project?
 * **Raised by:** Shreya
-*  **Answer:**Two potential datasets have been identified:
+*  Answer:Two potential datasets have been identified:
 
 Mendeley Data: Contains Indian electricity market price information and EV charging-related data.
 Kaggle – Electric Vehicle Charging Patterns: Contains charging-session information such as energy consumption, charging duration and charging costs.
 
 ### Q3:What factors influence EV charging prices?
 * **Raised by:** Shreya
-*  **Answer:**The major factors include:
+*  Answer:The major factors include:
 
-Electricity market prices.
-EV charging demand.
-Peak and off-peak hours.
-Energy consumption.
-Charging station availability.
-Operational costs.
+Electricity market prices,
+EV charging demand,
+Peak and off-peak hours,
+Energy consumption,
+Charging station availability,
+Operational costs,
 
 ---
 
