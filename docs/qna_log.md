@@ -5,9 +5,43 @@ This document records architectural decisions, engineering edge cases, and clari
 ---
 
 ## Phase 1: Repository Initialisation and Appropriate Data Selection
-### Q1: 
-* **Raised by:** 
-* **Resolution:** 
+### Q1: What factors should be considered while selecting a dataset for this project?
+* **Raised by:** Shreya
+*  **Answer:**The following factors should be considered:
+
+1. Relevance: The dataset should contain information directly related to EV charging, electricity prices or charging demand.
+
+2. Data Reliability: The dataset should come from a credible source to ensure accuracy and consistency.
+
+3. Data Completeness: It should have minimal missing values, duplicates and inconsistent records.
+
+4. Geographical Relevance: Since our project considers the Indian electricity market, India-specific data should be preferred wherever possible.
+
+5. Time Coverage: The dataset should contain sufficient historical records to identify trends and time-based variations.
+
+6. Feature Availability: It should include useful attributes such as electricity prices, charging duration, energy consumption and timestamps.
+
+7. Data Compatibility: Multiple datasets should have compatible formats, units and time intervals so they can be integrated.
+
+8. Accessibility: The dataset should be publicly available and usable for academic and research purposes.
+
+### Q2:Which datasets have been identified for this project?
+* **Raised by:** Shreya
+*  **Answer:**Two potential datasets have been identified:
+
+Mendeley Data: Contains Indian electricity market price information and EV charging-related data.
+Kaggle – Electric Vehicle Charging Patterns: Contains charging-session information such as energy consumption, charging duration and charging costs.
+
+### Q3:What factors influence EV charging prices?
+* **Raised by:** Shreya
+*  **Answer:**The major factors include:
+
+Electricity market prices.
+EV charging demand.
+Peak and off-peak hours.
+Energy consumption.
+Charging station availability.
+Operational costs.
 
 ---
 
