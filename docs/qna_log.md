@@ -41,7 +41,7 @@ EV charging demand,
 Peak and off-peak hours,
 Energy consumption,
 Charging station availability,
-Operational costs,
+Operational costs.
 
 ---
 
