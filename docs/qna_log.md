@@ -15,7 +15,7 @@ This document records architectural decisions, engineering edge cases, and clari
 
 3. Data Completeness: It should have minimal missing values, duplicates and inconsistent records.
 
-4. Geographical Relevance: Since our project considers the Indian electricity market, India-specific data should be preferred wherever possible.
+4. Geographical Relevance: The dataset should ideally represent the geographical region targeted by the project. However, international datasets, such as Caltech's EV charging dataset, can also be considered to understand EV charging behaviour and patterns when India-specific data is limited.
 
 5. Time Coverage: The dataset should contain sufficient historical records to identify trends and time-based variations.
 
@@ -27,10 +27,7 @@ This document records architectural decisions, engineering edge cases, and clari
 
 ### Q2:Which datasets have been identified for this project?
 * **Raised by:** Shreya
-*  Answer:Two potential datasets have been identified:
-
-Mendeley Data: Contains Indian electricity market price information and EV charging-related data.
-Kaggle – Electric Vehicle Charging Patterns: Contains charging-session information such as energy consumption, charging duration and charging costs.
+*  Answer:Caltech EV Charging Dataset: Contains real-world EV charging session data, which can help analyse charging behaviour, energy consumption and charging patterns.
 
 ### Q3:What factors influence EV charging prices?
 * **Raised by:** Shreya
