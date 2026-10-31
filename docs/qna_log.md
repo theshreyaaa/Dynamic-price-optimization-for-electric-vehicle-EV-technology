@@ -27,7 +27,8 @@ This document records architectural decisions, engineering edge cases, and clari
 
 ### Q2:Which datasets have been identified for this project?
 * **Raised by:** Shreya
-*  Answer:Caltech EV Charging Dataset: Contains real-world EV charging session data, which can help analyse charging behaviour, energy consumption and charging patterns.
+*  Answer:
+  Caltech EV Charging Dataset: Contains real-world EV charging session data, which can help analyse charging behaviour, energy consumption and charging patterns.The dataset is sourced from Caltech’s research resources.
 
 ### Q3:What factors influence EV charging prices?
 * **Raised by:** Shreya
