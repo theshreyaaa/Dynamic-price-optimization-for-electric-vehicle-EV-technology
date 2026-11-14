@@ -281,3 +281,30 @@ named_states = rank[raw_states]  # 0: Surplus, 1: Nominal, 2: Peak Stress[cite: 
 ### Q6: Were the features scaled, and was the data split into train and test sets?
 - **Raised by:** Pritikona patra
 - Answer: The task sheet used the two raw features (occupancy_rate and transformer_load_ratio, both roughly 0 to 1) and fitted the HMM on all 8,760 hours, so no scaling or split was applied in this phase. Model selection therefore uses in-sample likelihood, which favours more states. A time-based split (for example 70/15/15) with a scaler fitted only on training data could be added later if the team wants out-of-sample validation.
+
+
+## Phase 5.2: Load Response to Phase 4.4 Dynamic Prices
+
+### Q1: The planning sheet describes a profit-maximization objective with an overload penalty and an SLSQP solver for 5.2 and 5.3. Why was this not implemented?
+- **Raised by:** Pritikona patra
+- Answer: The team decided on a revenue-neutral design in Phase 4.4. A pure profit maximizer would push every hour to the price ceiling, including empty off-peak hours, which removes any incentive to shift charging. So 5.2 evaluates the Phase 4.4 prices instead of searching for new ones. Dollars are used throughout, and the elasticities are those of Phase 5.1.
+
+### Q2: How was the effect of the dynamic prices on charging load measured?
+- **Raised by:** Pritikona patra
+- Answer: New demand = old demand x (dynamic price / base price)^epsilon, with epsilon = -1.2 (Surplus), -0.8 (Nominal) and -0.4 (Peak Stress), applied to hourly_pricing_optimized.csv. Peak load, Peak-to-Average Ratio, high-load hours, energy and revenue were compared before and after.
+
+### Q3: What was the result?
+- **Raised by:** Pritikona patra
+- Answer: Peak load fell from 102.5 kW to 95.3 kW (-7.0%), the Peak-to-Average Ratio from 9.616 to 9.280, and hours above the 90th-percentile load (32 kW) from 876 to 805. Energy in Peak Stress hours fell 4.9%. Total energy fell 3.7%.
+
+### Q4: Phase 4.4 was designed to be revenue neutral. Is it still neutral after drivers respond?
+- **Raised by:** Pritikona patra
+- Answer: No. Revenue rises from $26,557 to $28,209 (+6.22%) and the average price paid rises from $0.284 to $0.314 per kWh. Phase 4.4 achieved neutrality assuming fixed demand. Since Peak Stress demand is inelastic (epsilon = -0.4), the surcharge raises revenue more than the lost energy reduces it. If strict neutrality is required, the surcharge should be recalibrated using the demand response.
+
+### Q5: Why does the Surplus discount have so little effect?
+- **Raised by:** Pritikona patra
+- Answer: Demand in Surplus hours rises 53.4%, but these hours carry only about 162 kWh in the baseline year (0.17% of total energy), because the station is almost empty then. A large percentage change on a tiny base adds very little energy and does not reduce the peak.
+
+### Q6: What are the limitations of this analysis?
+- **Raised by:** Pritikona patra
+- Answer: (1) Each hour is modelled independently, so energy not consumed at peak is not shifted to cheaper hours. (2) The elasticities are assumed values, not fitted from data. (3) The dataset has no battery level, so the 15% lifeline rule from the planning sheet cannot be applied. Load shifting and fitted elasticities are possible extensions.
