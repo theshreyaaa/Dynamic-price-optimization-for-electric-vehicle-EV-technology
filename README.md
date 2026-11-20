@@ -1,62 +1,65 @@
 # Dynamic-price-optimization-for-electric-vehicle-EV-technology
 This project aims to develop an intelligent dynamic pricing system for electric vehicle (EV) technology that optimizes prices based on market demand, battery costs, charging infrastructure, competitor pricing, customer preferences, and seasonal trends
 
-### HMM Model
+# HMM-Based Operational State Modeling
 
-This document describes the input features, model parameters and operational states used in the Gaussian Hidden Markov Model (HMM).
+### 4.1 Formal Mathematical Formulation
 
-## 1. Input Features
+A Gaussian Hidden Markov Model (HMM) is used to identify the operating condition of EV charging infrastructure.
 
-The HMM uses two input features to identify EV charging operating conditions.
+The model uses two input features:
 
-| Column Name | Data Type | Description |
+- `occupancy_rate`: Indicates how much of the charging infrastructure is occupied.
+- `transformer_load_ratio`: Indicates how heavily the electrical transformer is being used.
+
+At every time step, the model identifies one of three hidden operating states:
+
+| State | Operating Condition | Meaning |
 |---|---|---|
-| `occupancy_rate` | Float | Represents the proportion of charging stations currently occupied. |
-| `transformer_load_ratio` | Float | Represents the transformer load compared to its reference capacity. |
+| S1 | Renewable Surplus / Low Load | Low charging station occupancy and low transformer load. |
+| S2 | Nominal Operating Regime | Normal and stable charging activity. |
+| S3 | Peak Grid Stress | High charging activity and increased transformer load. |
 
-These two features are used together to identify the operating state of the charging infrastructure.
+**Three important HMM parameters:**
 
-## 2. Hidden Operational States
+1. **Initial State Probability (π):** Describes the probability of which operating state occurs at the beginning.
+2. **Transition Probability Matrix (A):** Describes the probability of moving from one operating state to another over time.
+3. **Emission Probability (B):** Describes how likely the observed input values are under each operating state.
 
-The model identifies three operating conditions.
+The model uses Gaussian distributions to represent the input values associated with each state.
 
-| State | State Name | Description |
-|---|---|---|
-| S1 | Renewable Surplus / Low Load | Low charging station occupancy and low transformer loading. |
-| S2 | Nominal Operating Regime | Normal and stable charging conditions. |
-| S3 | Peak Grid Stress | High charging activity and increased transformer loading. |
+### 4.2 Model Training Using Baum-Welch Algorithm
 
-## 3. HMM Model Parameters
+A Gaussian HMM with three hidden states was created using Python's `hmmlearn` library.
 
-| Parameter | Description |
-|---|---|
-| `n_components` | Number of hidden states used in the model (3). |
-| `covariance_type` | Type of covariance matrix used (`full`). |
-| `n_iter` | Maximum number of training iterations (200). |
-| `random_state` | Random seed used for reproducibility (42). |
-| `startprob_` | Initial probability of each hidden state. |
-| `transmat_` | Probability of transitioning between hidden states. |
-| `means_` | Average input feature values for each hidden state. |
-| `covars_` | Covariance matrices describing the variation of input features in each state. |
+```python
+from hmmlearn.hmm import GaussianHMM
 
-## 4. Model Evaluation Terms
+model = GaussianHMM(
+    n_components=3,
+    covariance_type="full",
+    n_iter=200,
+    random_state=42
+)
+```
 
-| Term | Description |
-|---|---|
-| `log_likelihood` | Measures how well the model explains the observed data. |
-| `AIC` | Model evaluation metric that considers fit and model complexity. |
-| `BIC` | Model evaluation metric that considers fit, complexity and dataset size. |
-| `n_components` | Number of hidden states tested (2, 3, 4 and 5). |
+The model learns its parameters using the Baum-Welch algorithm, which follows the Expectation-Maximization (EM) approach.
 
-## 5. Generated Model Outputs
+- **E-Step:** Estimates the probability of each hidden state based on the observed data.
+- **M-Step:** Updates the model parameters to improve the probability of observing the given data.
+- **Convergence Monitoring:** Tracks changes in log-likelihood during training to check whether the model is learning and approaching convergence.
 
-| Output | Description |
-|---|---|
-| Initial State Probabilities | Starting probability of each operating state. |
-| Transition Probability Matrix | Probability of moving from one state to another. |
-| Emission Means | Average occupancy and transformer load values for each state. |
-| Emission Covariances | Variation and relationship between the two input features for each state. |
-| Transition Counts | Number of observed transitions between states. |
-| Transition Probabilities | Normalized probabilities calculated from transition counts. |
+### 4.3 Model Selection and State Count Evaluation
 
-**Note:** The input features are numerical values, while the three operational states represent the operating conditions identified by the model.
+To evaluate the number of hidden states, four Gaussian HMM configurations were compared using 2, 3, 4 and 5 states.
+
+Two evaluation metrics were used:
+
+- **AIC (Akaike Information Criterion):** Evaluates model fit while penalizing unnecessary complexity.
+- **BIC (Bayesian Information Criterion):** Evaluates model fit while applying a penalty based on the number of parameters and observations.
+
+Lower AIC and BIC values generally indicate a better balance between model fit and complexity.
+
+Along with these metrics, domain interpretability was considered to determine whether the identified states represent meaningful EV charging conditions.
+
+The three-state configuration represents Renewable Surplus, Nominal Operation and Peak Grid Stress.
